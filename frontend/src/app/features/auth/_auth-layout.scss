@@ -1,0 +1,153 @@
+// Shared layout styles used by both LoginComponent and RegisterComponent.
+// This is a Sass partial (prefixed with _) so it is not compiled independently.
+
+.auth-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100vh;
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.auth-panel {
+  background: linear-gradient(145deg, var(--mat-sys-primary) 0%, #4a148c 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 40px;
+
+  @media (max-width: 768px) {
+    display: none;
+  }
+
+  &__inner {
+    max-width: 380px;
+  }
+}
+
+.hero-icon {
+  font-size: 64px;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 16px;
+  opacity: 0.95;
+}
+
+.hero-title {
+  font-size: 2.2rem;
+  font-weight: 800;
+  margin: 0 0 12px;
+  letter-spacing: -0.5px;
+}
+
+.hero-sub {
+  font-size: 1.05rem;
+  opacity: 0.85;
+  line-height: 1.6;
+  margin: 0 0 32px;
+}
+
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.95rem;
+    opacity: 0.9;
+
+    mat-icon {
+      font-size: 20px;
+      width: 20px;
+      height: 20px;
+      color: #b9f6ca;
+      flex-shrink: 0;
+    }
+  }
+}
+
+.auth-form-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  background: var(--mat-sys-surface);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth-header {
+  margin-bottom: 32px;
+}
+
+.auth-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--mat-sys-on-surface);
+}
+
+.auth-subtitle {
+  margin: 0;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.95rem;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.submit-btn {
+  margin-top: 8px;
+  height: 48px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-spinner {
+  display: inline-block;
+}
+
+.auth-footer {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--mat-sys-on-surface-variant);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.auth-link {
+  color: var(--mat-sys-primary);
+  font-weight: 600;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

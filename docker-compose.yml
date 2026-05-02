@@ -1,0 +1,175 @@
+# =============================================================================
+# docker-compose.yml — LOCAL DEVELOPMENT ONLY
+#
+# PURPOSE:
+#   Spin up the full stack (backend + frontend + MongoDB) on a developer's
+#   machine with a single command: `docker compose up --build`
+#
+# WHY docker-compose for local dev only?
+#   Staging and production run on Kubernetes (EKS). Docker Compose is simpler
+#   for local work — it doesn't need kubectl, kubeconfig, or an AWS account.
+#   The rule of thumb: Compose = laptop, Kubernetes = cloud.
+#
+# USAGE:
+#   Start (build if needed):  docker compose up --build
+#   Start in background:      docker compose up -d --build
+#   Stop and remove:          docker compose down
+#   Stop and wipe data:       docker compose down -v   ← also deletes the MongoDB volume
+#   View logs:                docker compose logs -f
+#   Rebuild one service:      docker compose up --build backend
+#
+# ENVIRONMENT VARIABLES:
+#   Copy .env.example to .env and fill in real values before running.
+#   The backend service reads variables from that .env file at startup.
+# =============================================================================
+
+services:
+
+  # ── MongoDB ────────────────────────────────────────────────────────────────
+  # Local MongoDB instance for development. In staging/prod we use MongoDB Atlas
+  # (cloud-hosted), but for local dev a container is faster and free.
+  mongo:
+    # mongo:7 is MongoDB 7 (current LTS). We pin the major version to avoid
+    # surprise breaking changes from a future 'latest' update.
+    image: mongo:7
+    container_name: simple-crud-mongo
+
+    # Restart the container automatically if it crashes. 'unless-stopped'
+    # means it restarts on failure OR on Docker daemon restart, but NOT
+    # when you explicitly run `docker compose stop`.
+    restart: unless-stopped
+
+    environment:
+      # Creates a root admin account on the first run. These credentials
+      # are only for local dev — the database is not exposed to the internet.
+      MONGO_INITDB_ROOT_USERNAME: devuser
+      MONGO_INITDB_ROOT_PASSWORD: devpassword
+      MONGO_INITDB_DATABASE: simple_crud_dev
+
+    ports:
+      # Map host port 27017 → container port 27017 so you can connect with
+      # MongoDB Compass or mongosh from your laptop for debugging.
+      - "27017:27017"
+
+    volumes:
+      # Named volume: persists data between `docker compose stop/start` cycles.
+      # Without this, every `docker compose down` wipes your local database.
+      - mongo_data:/data/db
+
+    # Only accessible to services on the 'app-network' — not exposed to the host
+    # network except via the explicit ports mapping above.
+    networks:
+      - app-network
+
+    healthcheck:
+      # mongosh --eval "db.adminCommand('ping')" returns 0 when MongoDB is ready
+      # to accept connections. Other services wait for this before starting.
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+
+  # ── Backend (Express API) ──────────────────────────────────────────────────
+  backend:
+    # Build from the Dockerfile at the project root.
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # 'development' target would stop at Stage 1 (builder) if we had one.
+      # Here we build all the way to the 'production' stage but mount source
+      # via volumes below so changes are reflected without rebuilding the image.
+      target: production
+
+    container_name: simple-crud-backend
+
+    restart: unless-stopped
+
+    environment:
+      # NODE_ENV=development here (not production) so:
+      #   - morgan request logging is enabled (useful to see API calls locally)
+      #   - error stack traces are included in responses (useful for debugging)
+      NODE_ENV: development
+      PORT: 3000
+
+      # Connect to the mongo service above. 'mongo' is the service name, which
+      # Docker resolves to the container's IP on the app-network.
+      # devuser:devpassword must match MONGO_INITDB_ROOT_* above.
+      MONGO_URI: mongodb://devuser:devpassword@mongo:27017/simple_crud_dev?authSource=admin
+
+      # Override JWT_SECRET from .env with a local-only secret so the dev
+      # secret never leaks into production. Change this to any long random string.
+      JWT_SECRET: local-dev-secret-change-me-please
+      JWT_EXPIRES_IN: 7d
+
+    ports:
+      # Map host 3000 → container 3000. You can then test the API directly
+      # at http://localhost:3000 or use the Angular dev server's proxy.
+      - "3000:3000"
+
+    # Wait until MongoDB is healthy before starting the backend.
+    # Without this, the backend might try to connect before Mongo is ready
+    # and crash with a connection error.
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+    networks:
+      - app-network
+
+    # Mount the source code into the container so file changes are reflected
+    # without rebuilding the image. The node_modules volume below prevents the
+    # host's node_modules from overwriting the container's npm-ci-installed ones.
+    volumes:
+      - .:/app
+      # Anonymous volume at /app/node_modules: Docker uses the container's
+      # node_modules (installed by npm ci for linux/arm64) instead of the
+      # host's node_modules (installed for macOS/Windows). This prevents
+      # native-module architecture mismatches.
+      - /app/node_modules
+
+
+  # ── Frontend (Angular dev server) ─────────────────────────────────────────
+  frontend:
+    # Build from frontend/Dockerfile. Context is the frontend/ directory so
+    # the Dockerfile can COPY source files relative to it.
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+
+    container_name: simple-crud-frontend
+
+    restart: unless-stopped
+
+    ports:
+      # Nginx serves the compiled Angular app on port 80 inside the container.
+      # We map it to host port 4200 to match the Angular dev server convention.
+      - "4200:80"
+
+    # Frontend container should start after the backend is up (not strictly
+    # required, but gives a clean startup order visible in logs).
+    depends_on:
+      - backend
+
+    networks:
+      - app-network
+
+
+# ── Named Volumes ─────────────────────────────────────────────────────────────
+# Named volumes live outside of any container and persist across restarts.
+# They're managed by Docker and stored in /var/lib/docker/volumes/ on Linux.
+volumes:
+  mongo_data:
+    # 'local' driver stores the data on the Docker host's filesystem.
+    driver: local
+
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+# A dedicated bridge network isolates our containers from other Docker projects
+# running on the same machine. Services reference each other by service name
+# (e.g. 'mongo', 'backend') instead of hardcoded IP addresses.
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,36 @@
+# =============================================================================
+# configmap.yaml — Backend non-sensitive configuration
+#
+# WHY ConfigMap vs Secret?
+#   - ConfigMap: for non-sensitive config values (port, log level, env name).
+#     Stored in plain text in etcd. Safe to check into Git.
+#   - Secret: for sensitive values (MONGO_URI, JWT_SECRET).
+#     Base64-encoded in etcd. NEVER check Secret YAML with real values into Git.
+#
+# This ConfigMap holds variables that are the SAME across all pods in a
+# deployment and are safe for anyone with cluster access to read.
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # 'backend-config' is the name other resources reference when mounting
+  # this ConfigMap as environment variables (see envFrom in deployment.yaml).
+  name: backend-config
+data:
+  # The port number Express listens on inside the container.
+  # This MUST match the containerPort in deployment.yaml and the
+  # targetPort in service.yaml.
+  PORT: "3000"
+
+  # NODE_ENV=production tells Express to:
+  #   - Skip morgan HTTP request logging (use structured logs via a sidecar instead)
+  #   - Omit error stack traces from HTTP responses (security: don't expose internals)
+  #   - Enable response caching hints
+  # The Dockerfile also sets this, but we override here so it's visible in the
+  # Kubernetes control plane and easy to change per-environment in overlays.
+  NODE_ENV: "production"
+
+  # JWT token lifetime. 7 days is a reasonable balance between security
+  # (shorter = better) and UX (longer = fewer forced logouts).
+  # Adjust per-environment: staging may use 1d to expose expiry-related bugs.
+  JWT_EXPIRES_IN: "7d"

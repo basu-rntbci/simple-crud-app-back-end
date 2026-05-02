@@ -1,0 +1,61 @@
+<mat-toolbar class="navbar">
+  <!-- Brand -->
+  <a routerLink="/products" class="brand">
+    <mat-icon class="brand-icon">inventory_2</mat-icon>
+    <span class="brand-name">ProductHub</span>
+  </a>
+
+  <!-- Spacer -->
+  <span class="spacer"></span>
+
+  <!-- Nav links (desktop) -->
+  <nav class="nav-links">
+    <a
+      mat-button
+      routerLink="/products"
+      routerLinkActive="active-link"
+      [routerLinkActiveOptions]="{ exact: true }"
+    >
+      <mat-icon>grid_view</mat-icon>
+      Products
+    </a>
+    <a mat-button routerLink="/products/new" routerLinkActive="active-link">
+      <mat-icon>add_circle_outline</mat-icon>
+      Add Product
+    </a>
+  </nav>
+
+  <!-- User menu -->
+  <button mat-icon-button [matMenuTriggerFor]="userMenu" matTooltip="Account">
+    <div class="avatar">{{ avatarLetter() }}</div>
+  </button>
+
+  <mat-menu #userMenu="matMenu" class="user-menu">
+    <!-- User info header -->
+    <div class="menu-user-info" mat-menu-item disabled>
+      <div class="avatar avatar--sm">{{ avatarLetter() }}</div>
+      <div class="menu-user-details">
+        <span class="menu-user-name">{{ user()?.name }}</span>
+        <span class="menu-user-email">{{ user()?.email }}</span>
+      </div>
+    </div>
+
+    <mat-divider></mat-divider>
+
+    <button mat-menu-item routerLink="/products">
+      <mat-icon>grid_view</mat-icon>
+      My Products
+    </button>
+    <button mat-menu-item routerLink="/products/new">
+      <mat-icon>add_circle_outline</mat-icon>
+      Add Product
+    </button>
+
+    <mat-divider></mat-divider>
+
+    <button mat-menu-item (click)="logout()" class="logout-item">
+      <mat-icon>logout</mat-icon>
+      Sign Out
+    </button>
+  </mat-menu>
+</mat-toolbar>

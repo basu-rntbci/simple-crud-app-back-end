@@ -1,0 +1,59 @@
+# .dockerignore — Backend (root-level)
+#
+# WHY this file matters:
+#   When Docker builds an image it sends the entire build context (this folder)
+#   to the Docker daemon. Without .dockerignore, it would send node_modules
+#   (~200 MB+), test files, and local secrets. That makes builds slow and
+#   risks leaking credentials into the image layer history.
+#
+# Rule: exclude anything that is either:
+#   (a) already reinstalled inside the container by npm ci, or
+#   (b) not needed at runtime, or
+#   (c) sensitive / environment-specific.
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
+# node_modules will be rebuilt inside the container via npm ci — never copy
+# the host's node_modules because they may be compiled for the wrong OS/arch.
+node_modules
+
+# npm debug logs from failed installs on the host machine
+npm-debug.log*
+
+# ── Environment & Secrets ─────────────────────────────────────────────────────
+# NEVER include .env files in a Docker image — secrets end up in image layers
+# which are stored in registries and readable by anyone with image access.
+# Environment variables are injected at runtime via Kubernetes Secrets or
+# Docker --env-file flags.
+.env
+.env.*
+!.env.example
+
+# ── Development & Testing ─────────────────────────────────────────────────────
+# Test files have no purpose at runtime and only increase image size.
+tests/
+coverage/
+*.test.js
+*.spec.js
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+# The frontend is built separately in its own Dockerfile — don't include it
+# in the backend image context.
+frontend/
+
+# ── Git & IDE ─────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+# Don't include Docker files themselves inside the image — they're build-time
+# artefacts, not runtime dependencies.
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.md
+*.log

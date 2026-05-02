@@ -1,0 +1,24 @@
+# =============================================================================
+# service.yaml — Frontend Service
+#
+# Same rationale as backend: ClusterIP so only the Ingress (AWS ALB) can
+# reach it externally. The Ingress routes /* to this service.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  labels:
+    app: frontend
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: frontend
+
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80

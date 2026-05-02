@@ -1,0 +1,107 @@
+# =============================================================================
+# overlays/dev/kustomization.yaml — Development environment overrides
+#
+# WHEN IS THIS USED?
+#   When a developer wants to test manifests against a real Kubernetes cluster
+#   (e.g. a local minikube or a shared dev namespace on EKS) without affecting
+#   staging or prod.
+#
+# APPLY:
+#   kubectl apply -k k8s/overlays/dev
+#
+# DIFFERENCES FROM BASE:
+#   - 1 replica of everything (save cluster resources)
+#   - Lower resource limits (dev cluster is usually shared/small)
+#   - Image tags are 'dev-<git-sha>' (pushed by CI on feature branches)
+#   - Namespace is 'dev'
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Point at the base manifests one level up. All base resources are included
+# unless explicitly excluded here.
+resources:
+  - ../../base
+
+# Apply all resources to the 'dev' namespace.
+# Kustomize adds 'namespace: dev' to every resource's metadata.
+namespace: dev
+
+# 'namePrefix' adds a prefix to every resource name.
+# This prevents name collisions if multiple environments share one cluster.
+namePrefix: dev-
+
+# Image overrides: replace the placeholder image names in the base manifests
+# with real ECR image URIs. The CD workflow updates these tags before deploying.
+#
+# FORMAT: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
+# Replace ACCOUNT_ID and REGION with your real values.
+images:
+  - name: simple-crud-backend
+    newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/simple-crud/backend
+    newTag: dev-latest   # CI workflow replaces 'dev-latest' with 'dev-<sha>'
+  - name: simple-crud-frontend
+    newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/simple-crud/frontend
+    newTag: dev-latest
+
+# Patches modify specific fields in base resources without duplicating the
+# entire YAML file. The 'strategic merge patch' format lets you write only
+# the fields you want to change.
+patches:
+  # Patch backend replicas: 1 replica is enough in dev (save money).
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        replicas: 1
+    target:
+      kind: Deployment
+      name: backend
+
+  # Patch frontend replicas: 1 replica in dev.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+      spec:
+        replicas: 1
+    target:
+      kind: Deployment
+      name: frontend
+
+  # Patch backend resource limits: smaller in dev to fit on small clusters.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        template:
+          spec:
+            containers:
+              - name: backend
+                resources:
+                  requests:
+                    cpu: "50m"
+                    memory: "64Mi"
+                  limits:
+                    cpu: "250m"
+                    memory: "128Mi"
+    target:
+      kind: Deployment
+      name: backend
+
+  # Patch ConfigMap: override NODE_ENV so morgan logging is enabled in dev K8s.
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: backend-config
+      data:
+        NODE_ENV: "development"
+    target:
+      kind: ConfigMap
+      name: backend-config

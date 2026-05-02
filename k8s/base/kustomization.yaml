@@ -1,0 +1,37 @@
+# =============================================================================
+# kustomization.yaml — Kustomize Base Configuration
+#
+# WHY Kustomize?
+#   Kustomize lets you define base Kubernetes manifests ONCE and customise
+#   them per-environment using overlays and patches — WITHOUT duplicating YAML
+#   or using a full template engine like Helm.
+#
+#   Think of it like CSS:
+#     base/        = the default stylesheet (applies everywhere)
+#     overlays/    = per-page overrides (only apply where specified)
+#
+# HOW IT WORKS:
+#   1. 'base/' contains the canonical YAML for every resource.
+#   2. Each overlay in 'overlays/<env>/' has its own kustomization.yaml that
+#      references this base and applies patches (different replica count,
+#      resource limits, image tag).
+#   3. To render the final YAML for an environment:
+#        kubectl kustomize k8s/overlays/staging | kubectl apply -f -
+#      Or (simpler):
+#        kubectl apply -k k8s/overlays/staging
+#
+# DOCUMENTATION: https://kustomize.io
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# All resources listed here are included in every environment's output.
+# Overlays can add more resources or patch these ones.
+resources:
+  - backend/configmap.yaml
+  - backend/deployment.yaml
+  - backend/service.yaml
+  - backend/hpa.yaml
+  - frontend/deployment.yaml
+  - frontend/service.yaml
+  - ingress.yaml

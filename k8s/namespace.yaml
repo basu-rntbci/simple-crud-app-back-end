@@ -1,0 +1,56 @@
+# =============================================================================
+# namespace.yaml — Kubernetes Namespaces
+#
+# WHY namespaces?
+#   A namespace is a virtual cluster inside your real cluster. Separating
+#   environments into namespaces means:
+#     - Resources (pods, services, secrets) are isolated from each other.
+#     - RBAC policies can limit who can access which namespace.
+#     - Resource quotas can be applied per-namespace to prevent one environment
+#       from starving another.
+#     - kubectl commands can target a specific namespace with -n <name>.
+#
+# APPLY THIS FILE FIRST before any other k8s manifests:
+#   kubectl apply -f k8s/namespace.yaml
+# =============================================================================
+
+# ── Development Namespace ─────────────────────────────────────────────────────
+# Used by developers to test K8s manifests without affecting staging or prod.
+# Typically deployed manually or via feature-branch CI pipelines.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    environment: dev
+    # managed-by label is a convention that tells teams (and tooling like
+    # ArgoCD or Flux) that this resource is controlled by these manifests.
+    managed-by: kubectl
+
+---
+
+# ── Staging Namespace ─────────────────────────────────────────────────────────
+# A production-like environment that receives every merge to the main branch.
+# QA and product review happen here before changes are promoted to prod.
+# Deployed automatically by the cd-staging.yml GitHub Actions workflow.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    environment: staging
+    managed-by: github-actions
+
+---
+
+# ── Production Namespace ──────────────────────────────────────────────────────
+# The live environment. Only promoted from staging via a version tag push
+# (e.g. git tag v1.2.3 && git push --tags).
+# Deployed automatically by the cd-prod.yml GitHub Actions workflow.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels:
+    environment: prod
+    managed-by: github-actions

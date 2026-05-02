@@ -1,0 +1,141 @@
+# =============================================================================
+# deployment.yaml — Backend Deployment (base / shared configuration)
+#
+# A Deployment manages a set of identical Pods (replicas). It ensures the
+# desired number of replicas is always running — if a Pod crashes, Kubernetes
+# creates a replacement automatically.
+#
+# This is the BASE config shared by all environments. Environment-specific
+# values (replica count, resource limits, image tag) are patched by the
+# Kustomize overlays in k8s/overlays/<env>/.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # The name used by kubectl and by other resources (e.g. HPA) to reference
+  # this Deployment. Must be unique within the namespace.
+  name: backend
+  labels:
+    # Labels are key-value pairs used for querying and grouping resources.
+    # 'app: backend' lets you select all backend resources with:
+    #   kubectl get all -l app=backend
+    app: backend
+    tier: api
+
+spec:
+  # Number of identical pod replicas to run. The base is 1 so the manifests
+  # are valid standalone. Overlays patch this to 2 (staging) or 3+ (prod).
+  replicas: 1
+
+  # The selector tells the Deployment which Pods it manages. It MUST match
+  # the labels in spec.template.metadata.labels below.
+  selector:
+    matchLabels:
+      app: backend
+
+  strategy:
+    # RollingUpdate replaces old pods gradually. At any moment:
+    #   - maxSurge: 1 — allow 1 extra pod above replicas during rollout
+    #   - maxUnavailable: 0 — never kill an old pod before a new one is ready
+    # This means zero-downtime deployments: traffic is always handled by at
+    # least `replicas` healthy pods throughout the update.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        # These labels MUST match spec.selector.matchLabels above.
+        app: backend
+        tier: api
+    spec:
+      # Kubernetes will not schedule a new pod on a node that already runs one
+      # with the same label (app=backend) in the same namespace.
+      # This spreads replicas across nodes for high availability — if one node
+      # goes down, the remaining replicas are on other nodes.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: backend
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: backend
+          # Image is a placeholder. The CD workflows use `kustomize edit set image`
+          # to replace this with the actual ECR image + commit SHA tag before
+          # applying the manifests. Never hardcode a real ECR URI here.
+          image: simple-crud-backend:latest
+
+          ports:
+            # containerPort documents which port the Express app listens on.
+            # It does NOT publish the port — the Service does that.
+            - containerPort: 3000
+              name: http
+
+          # envFrom injects all key-value pairs from a ConfigMap or Secret as
+          # environment variables. Order matters: Secret values override
+          # ConfigMap values if both define the same key.
+          envFrom:
+            # Non-sensitive config: PORT, NODE_ENV, JWT_EXPIRES_IN
+            - configMapRef:
+                name: backend-config
+            # Sensitive config: MONGO_URI, JWT_SECRET
+            # This Secret is created by the CD workflow, NOT committed to Git.
+            # See k8s/secrets/backend-secrets.template.yaml for the structure.
+            - secretRef:
+                name: backend-secrets
+
+          # Resource requests and limits:
+          #   requests — the minimum CPU/memory the pod needs. Used by the
+          #              scheduler to decide which node to place the pod on.
+          #   limits   — the maximum the pod can use. If it exceeds CPU limit,
+          #              it is throttled. If it exceeds memory limit, it is killed
+          #              and restarted (OOMKilled). These are patched by overlays.
+          resources:
+            requests:
+              cpu: "100m"       # 100 millicores = 0.1 vCPU
+              memory: "128Mi"   # 128 MiB RAM
+            limits:
+              cpu: "500m"       # 0.5 vCPU maximum
+              memory: "256Mi"   # 256 MiB maximum
+
+          # ── Liveness Probe ────────────────────────────────────────────────
+          # Kubernetes polls /health periodically. If the probe fails 3 times
+          # in a row, the container is killed and restarted. Use this to recover
+          # from deadlocks or other stuck states that don't crash the process.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15   # wait 15s for the server to start
+            periodSeconds: 20         # check every 20 seconds
+            failureThreshold: 3       # restart after 3 consecutive failures
+
+          # ── Readiness Probe ───────────────────────────────────────────────
+          # Kubernetes polls /health before sending ANY traffic to this pod.
+          # If the probe fails, the pod is removed from the Service's endpoint
+          # list — no traffic is sent to it. Once it passes, traffic resumes.
+          # This prevents 502 errors during rolling updates and cold starts.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # ── Graceful Shutdown ─────────────────────────────────────────────
+          # When Kubernetes wants to stop a pod (scale-down, rolling update),
+          # it sends SIGTERM. The container has terminationGracePeriodSeconds
+          # (30s default) to finish in-flight requests before being force-killed.
+          # Node.js + Express handles SIGTERM gracefully out of the box.
+
+      # How long Kubernetes waits after sending SIGTERM before force-killing
+      # with SIGKILL. 30 seconds is enough for long-running API requests.
+      terminationGracePeriodSeconds: 30

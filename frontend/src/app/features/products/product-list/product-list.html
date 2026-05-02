@@ -1,0 +1,164 @@
+<div class="page-wrapper">
+  <!-- Page header -->
+  <header class="page-header">
+    <div class="header-left">
+      <h1 class="page-title">My Products</h1>
+      <p class="page-subtitle">
+        @if (loading()) {
+          Loading your inventory…
+        } @else {
+          {{ filteredProducts().length }} product{{ filteredProducts().length !== 1 ? 's' : '' }}
+        }
+      </p>
+    </div>
+
+    <!-- Search -->
+    <mat-form-field appearance="outline" class="search-field" subscriptSizing="dynamic">
+      <mat-label>Search products</mat-label>
+      <mat-icon matPrefix>search</mat-icon>
+      <input matInput [(ngModel)]="searchQuery" [ngModelOptions]="{ standalone: true }" />
+      @if (searchQuery()) {
+        <button mat-icon-button matSuffix (click)="searchQuery.set('')">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+  </header>
+
+  <!-- Loading skeleton -->
+  @if (loading()) {
+    <div class="products-grid">
+      @for (item of skeletonItems; track $index) {
+        <div class="skeleton-card">
+          <div class="skeleton skeleton-img"></div>
+          <div class="skeleton-body">
+            <div class="skeleton skeleton-line skeleton-title"></div>
+            <div class="skeleton skeleton-line skeleton-short"></div>
+            <div class="skeleton-actions">
+              <div class="skeleton skeleton-btn"></div>
+              <div class="skeleton skeleton-btn"></div>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Product grid -->
+  @if (!loading() && filteredProducts().length > 0) {
+    <div class="products-grid">
+      @for (product of filteredProducts(); track trackById($index, product)) {
+        <mat-card class="product-card" [class.deleting]="deletingId() === product._id">
+          <!-- Product image / placeholder -->
+          <a [routerLink]="['/products', product._id]" class="card-image-link">
+            @if (product.image) {
+              <img
+                [src]="product.image"
+                [alt]="product.name"
+                class="product-img"
+                loading="lazy"
+                (error)="product.image = ''"
+              />
+            } @else {
+              <div class="product-img-placeholder">
+                <span class="placeholder-letter">{{ product.name.charAt(0).toUpperCase() }}</span>
+              </div>
+            }
+          </a>
+
+          <mat-card-content class="card-content">
+            <!-- Name & price row -->
+            <div class="card-top">
+              <a [routerLink]="['/products', product._id]" class="product-name-link">
+                <h3 class="product-name" [matTooltip]="product.name">{{ product.name }}</h3>
+              </a>
+              <span class="price-badge">${{ product.price | number: '1.2-2' }}</span>
+            </div>
+
+            <!-- Stock status chip -->
+            <div class="stock-row">
+              <span class="stock-chip stock-{{ stockStatus(product.quantity) }}">
+                <mat-icon class="stock-icon">
+                  @switch (stockStatus(product.quantity)) {
+                    @case ('out') { remove_shopping_cart }
+                    @case ('low') { warning_amber }
+                    @default { inventory }
+                  }
+                </mat-icon>
+                @switch (stockStatus(product.quantity)) {
+                  @case ('out') { Out of stock }
+                  @case ('low') { Low stock ({{ product.quantity }}) }
+                  @default { In stock · {{ product.quantity }} }
+                }
+              </span>
+            </div>
+
+            <!-- Actions -->
+            <div class="card-actions">
+              <a
+                mat-stroked-button
+                [routerLink]="['/products', product._id, 'edit']"
+                class="edit-btn"
+              >
+                <mat-icon>edit</mat-icon>
+                Edit
+              </a>
+              <button
+                mat-flat-button
+                color="warn"
+                class="delete-btn"
+                (click)="confirmDelete(product)"
+                [disabled]="deletingId() === product._id"
+              >
+                @if (deletingId() === product._id) {
+                  <mat-spinner diameter="16"></mat-spinner>
+                } @else {
+                  <mat-icon>delete_outline</mat-icon>
+                }
+                <span>Delete</span>
+              </button>
+            </div>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  }
+
+  <!-- Empty state -->
+  @if (!loading() && filteredProducts().length === 0) {
+    <div class="empty-state">
+      @if (searchQuery()) {
+        <mat-icon class="empty-icon">search_off</mat-icon>
+        <h2 class="empty-title">No results for "{{ searchQuery() }}"</h2>
+        <p class="empty-sub">Try a different search term or clear the filter.</p>
+        <button mat-stroked-button (click)="searchQuery.set('')">
+          <mat-icon>clear</mat-icon>
+          Clear search
+        </button>
+      } @else {
+        <mat-icon class="empty-icon">inventory_2</mat-icon>
+        <h2 class="empty-title">No products yet</h2>
+        <p class="empty-sub">
+          Start building your inventory — add your first product to get going.
+        </p>
+        <a mat-flat-button routerLink="/products/new">
+          <mat-icon>add</mat-icon>
+          Add Your First Product
+        </a>
+      }
+    </div>
+  }
+
+  <!-- Floating action button -->
+  @if (!loading()) {
+    <a
+      mat-fab
+      routerLink="/products/new"
+      class="fab"
+      matTooltip="Add product"
+      matTooltipPosition="left"
+    >
+      <mat-icon>add</mat-icon>
+    </a>
+  }
+</div>

@@ -1,0 +1,41 @@
+# .dockerignore — Frontend (frontend/ directory)
+#
+# WHY this file matters:
+#   Without it, Docker would send node_modules (~400 MB of Angular packages)
+#   to the daemon on every build, even though npm ci reinstalls them inside
+#   the container. This list excludes everything that either:
+#   (a) gets recreated inside the container, or
+#   (b) is not needed to build the Angular app.
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
+# node_modules is rebuilt by 'npm ci' inside the container.
+# Never copy host node_modules — they may be compiled for the wrong OS/arch.
+node_modules
+npm-debug.log*
+
+# ── Build output ──────────────────────────────────────────────────────────────
+# Previous build output from the developer's machine — the Docker build
+# re-runs 'ng build', so stale dist/ files should not pollute the image.
+dist/
+
+# ── Git & IDE ─────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+
+# ── Docker files ──────────────────────────────────────────────────────────────
+Dockerfile
+.dockerignore
+nginx.conf
+
+# ── Test & coverage ───────────────────────────────────────────────────────────
+coverage/
+*.spec.ts
+e2e/
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.md
+*.log
+.editorconfig

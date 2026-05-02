@@ -1,0 +1,90 @@
+# =============================================================================
+# deployment.yaml — Frontend Deployment (base / shared configuration)
+#
+# The frontend is a pre-compiled Angular SPA served by Nginx. There is NO
+# Node.js at runtime — just static files. This means:
+#   - Pods are extremely lightweight (~25 MB image, <50m CPU, <64Mi RAM).
+#   - No database connections, no JWT secrets — Nginx has no sensitive config.
+#   - Deployments are fast because there is nothing to "warm up".
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+    tier: web
+
+spec:
+  # Base replicas: 1 for the manifest to be valid standalone. Patched to
+  # 2 (staging) / 2 (prod) by overlays.
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: frontend
+
+  strategy:
+    # Rolling update with zero downtime. Same rationale as backend:
+    # keep existing pods serving while new ones start.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: frontend
+        tier: web
+    spec:
+      # Spread frontend pods across different nodes for HA.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: frontend
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: frontend
+          # Placeholder image replaced by 'kustomize edit set image' in CI/CD.
+          image: simple-crud-frontend:latest
+
+          ports:
+            # Nginx listens on port 80. The Service routes traffic here.
+            - containerPort: 80
+              name: http
+
+          # Frontend containers are very light. These limits prevent a
+          # mis-configured Nginx from hogging shared node resources.
+          resources:
+            requests:
+              cpu: "50m"       # 0.05 vCPU — Nginx is nearly idle between requests
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          # Liveness: if Nginx stops responding, kill and restart the container.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            failureThreshold: 3
+
+          # Readiness: only send traffic once Nginx is serving the Angular app.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+
+      terminationGracePeriodSeconds: 10

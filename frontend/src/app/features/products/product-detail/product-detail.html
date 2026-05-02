@@ -1,0 +1,110 @@
+<div class="page-wrapper">
+  <!-- Breadcrumb -->
+  <nav class="breadcrumb">
+    <a routerLink="/products" class="breadcrumb-link">
+      <mat-icon>arrow_back</mat-icon>
+      Products
+    </a>
+    @if (product()) {
+      <mat-icon class="breadcrumb-sep">chevron_right</mat-icon>
+      <span class="breadcrumb-current">{{ product()!.name }}</span>
+    }
+  </nav>
+
+  <!-- Loading spinner -->
+  @if (loading()) {
+    <div class="loading-center">
+      <mat-spinner diameter="48"></mat-spinner>
+    </div>
+  }
+
+  <!-- Product detail -->
+  @if (!loading() && product(); as p) {
+    <div class="detail-grid">
+      <!-- Image panel -->
+      <div class="image-panel">
+        @if (p.image) {
+          <img [src]="p.image" [alt]="p.name" class="product-img" />
+        } @else {
+          <div class="product-img-placeholder">
+            <span class="placeholder-letter">{{ p.name.charAt(0).toUpperCase() }}</span>
+          </div>
+        }
+      </div>
+
+      <!-- Info panel -->
+      <div class="info-panel">
+        <h1 class="product-name">{{ p.name }}</h1>
+
+        <!-- Price -->
+        <div class="price-row">
+          <span class="price-value">${{ p.price | number: '1.2-2' }}</span>
+          <span class="price-label">per unit</span>
+        </div>
+
+        <mat-divider class="divider"></mat-divider>
+
+        <!-- Details grid -->
+        <dl class="details-grid">
+          <dt>Stock status</dt>
+          <dd>
+            <span class="stock-chip stock-{{ stockClass(p.quantity) }}">
+              <mat-icon class="chip-icon">
+                @if (p.quantity === 0) { remove_shopping_cart }
+                @else if (p.quantity <= 5) { warning_amber }
+                @else { inventory }
+              </mat-icon>
+              {{ stockLabel(p.quantity) }}
+            </span>
+          </dd>
+
+          <dt>Quantity</dt>
+          <dd class="quantity-value">{{ p.quantity | number }}</dd>
+
+          <dt>Total value</dt>
+          <dd class="total-value">${{ (p.price * p.quantity) | number: '1.2-2' }}</dd>
+
+          <dt>Product ID</dt>
+          <dd class="product-id">{{ p._id }}</dd>
+
+          <dt>Created</dt>
+          <dd>{{ p.createdAt | date: 'mediumDate' }}</dd>
+
+          <dt>Last updated</dt>
+          <dd>{{ p.updatedAt | date: 'medium' }}</dd>
+        </dl>
+
+        <mat-divider class="divider"></mat-divider>
+
+        <!-- Action buttons -->
+        <div class="action-buttons">
+          <a
+            mat-flat-button
+            [routerLink]="['/products', p._id, 'edit']"
+            class="edit-btn"
+          >
+            <mat-icon>edit</mat-icon>
+            Edit Product
+          </a>
+          <button
+            mat-stroked-button
+            color="warn"
+            class="delete-btn"
+            (click)="confirmDelete()"
+            [disabled]="deleting()"
+          >
+            @if (deleting()) {
+              <mat-spinner diameter="18"></mat-spinner>
+              Deleting…
+            } @else {
+              <ng-container>
+                <mat-icon>delete_outline</mat-icon>
+                Delete
+              </ng-container>
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

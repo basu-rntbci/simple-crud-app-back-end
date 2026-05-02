@@ -1,0 +1,22 @@
+<h2 mat-dialog-title class="dialog-title">
+  <mat-icon class="dialog-icon warn-icon">warning_amber</mat-icon>
+  {{ data.title }}
+</h2>
+
+<mat-dialog-content class="dialog-content">
+  <p>{{ data.message }}</p>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end" class="dialog-actions">
+  <button mat-stroked-button mat-dialog-close>
+    {{ data.cancelText ?? 'Cancel' }}
+  </button>
+  <button
+    mat-flat-button
+    [color]="data.severity ?? 'warn'"
+    [mat-dialog-close]="true"
+    cdkFocusInitial
+  >
+    {{ data.confirmText ?? 'Confirm' }}
+  </button>
+</mat-dialog-actions>

@@ -1,0 +1,146 @@
+<div class="auth-layout">
+  <!-- Left panel -->
+  <aside class="auth-panel">
+    <div class="auth-panel__inner">
+      <mat-icon class="hero-icon">inventory_2</mat-icon>
+      <h1 class="hero-title">ProductHub</h1>
+      <p class="hero-sub">
+        Join thousands of teams who use ProductHub to track, manage, and grow their inventory.
+      </p>
+      <ul class="feature-list">
+        <li>
+          <mat-icon>check_circle</mat-icon>
+          <span>Free to get started</span>
+        </li>
+        <li>
+          <mat-icon>check_circle</mat-icon>
+          <span>All your products in one place</span>
+        </li>
+        <li>
+          <mat-icon>check_circle</mat-icon>
+          <span>Real-time updates & history</span>
+        </li>
+      </ul>
+    </div>
+  </aside>
+
+  <!-- Right panel: registration form -->
+  <main class="auth-form-panel">
+    <div class="auth-card">
+      <header class="auth-header">
+        <h2 class="auth-title">Create account</h2>
+        <p class="auth-subtitle">Start managing your products in seconds</p>
+      </header>
+
+      <form [formGroup]="form" (ngSubmit)="submit()" class="auth-form" novalidate>
+        <!-- Full name -->
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Full name</mat-label>
+          <mat-icon matPrefix>person_outline</mat-icon>
+          <input matInput formControlName="name" placeholder="Jane Smith" autocomplete="name" />
+          @if (form.controls.name.hasError('required') && form.controls.name.touched) {
+            <mat-error>Name is required</mat-error>
+          } @else if (form.controls.name.hasError('minlength') && form.controls.name.touched) {
+            <mat-error>At least 2 characters required</mat-error>
+          }
+        </mat-form-field>
+
+        <!-- Email -->
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Email address</mat-label>
+          <mat-icon matPrefix>mail_outline</mat-icon>
+          <input
+            matInput
+            type="email"
+            formControlName="email"
+            placeholder="you@example.com"
+            autocomplete="email"
+          />
+          @if (form.controls.email.hasError('required') && form.controls.email.touched) {
+            <mat-error>Email is required</mat-error>
+          } @else if (form.controls.email.hasError('email') && form.controls.email.touched) {
+            <mat-error>Enter a valid email</mat-error>
+          }
+        </mat-form-field>
+
+        <!-- Password -->
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Password</mat-label>
+          <mat-icon matPrefix>lock_outline</mat-icon>
+          <input
+            matInput
+            [type]="showPassword() ? 'text' : 'password'"
+            formControlName="password"
+            placeholder="Min. 6 characters"
+            autocomplete="new-password"
+          />
+          <button
+            mat-icon-button
+            matSuffix
+            type="button"
+            (click)="showPassword.set(!showPassword())"
+          >
+            <mat-icon>{{ showPassword() ? 'visibility_off' : 'visibility' }}</mat-icon>
+          </button>
+          @if (form.controls.password.hasError('required') && form.controls.password.touched) {
+            <mat-error>Password is required</mat-error>
+          } @else if (
+            form.controls.password.hasError('minlength') && form.controls.password.touched
+          ) {
+            <mat-error>At least 6 characters required</mat-error>
+          }
+        </mat-form-field>
+
+        <!-- Confirm password -->
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Confirm password</mat-label>
+          <mat-icon matPrefix>lock_outline</mat-icon>
+          <input
+            matInput
+            [type]="showConfirm() ? 'text' : 'password'"
+            formControlName="confirmPassword"
+            placeholder="Repeat your password"
+            autocomplete="new-password"
+          />
+          <button
+            mat-icon-button
+            matSuffix
+            type="button"
+            (click)="showConfirm.set(!showConfirm())"
+          >
+            <mat-icon>{{ showConfirm() ? 'visibility_off' : 'visibility' }}</mat-icon>
+          </button>
+          @if (
+            form.hasError('passwordMismatch') &&
+            form.controls.confirmPassword.touched
+          ) {
+            <mat-error>Passwords do not match</mat-error>
+          }
+        </mat-form-field>
+
+        <!-- Submit -->
+        <button
+          mat-flat-button
+          class="submit-btn"
+          type="submit"
+          [disabled]="form.invalid || loading()"
+        >
+          @if (loading()) {
+            <mat-spinner diameter="20" class="btn-spinner"></mat-spinner>
+            Creating account…
+          } @else {
+            <ng-container>
+              <mat-icon>person_add</mat-icon>
+              Create Account
+            </ng-container>
+          }
+        </button>
+      </form>
+
+      <footer class="auth-footer">
+        <span>Already have an account?</span>
+        <a routerLink="/auth/login" class="auth-link">Sign in</a>
+      </footer>
+    </div>
+  </main>
+</div>

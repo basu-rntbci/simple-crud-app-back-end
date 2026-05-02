@@ -1,0 +1,57 @@
+@use '@angular/material' as mat;
+
+// ── Material Design 3 Theme ──────────────────────────────────────────────────
+// Using the violet palette for a modern, rich primary colour.
+html {
+  height: 100%;
+
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$violet-palette,
+        tertiary: mat.$orange-palette,
+      ),
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
+body {
+  color-scheme: light;
+  background-color: var(--mat-sys-surface-container-lowest);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+  margin: 0;
+  height: 100%;
+}
+
+// ── Global resets ────────────────────────────────────────────────────────────
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+// ── Toast (snack-bar) overrides ──────────────────────────────────────────────
+// Angular Material's snack-bar panel classes must be set on the document root.
+.snack-error .mdc-snackbar__surface {
+  background: #dc2626 !important;
+  color: #fff !important;
+}
+
+.snack-success .mdc-snackbar__surface {
+  background: #16a34a !important;
+  color: #fff !important;
+}
+
+// ── Smooth scroll ────────────────────────────────────────────────────────────
+html {
+  scroll-behavior: smooth;
+}
+
+// ── View transitions (page-to-page animations via Angular router) ─────────────
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.25s;
+}

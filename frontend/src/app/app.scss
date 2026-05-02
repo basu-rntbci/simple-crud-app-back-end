@@ -1,0 +1,5 @@
+// The navbar is 64px tall — add matching top padding so content is never hidden under it
+.main-content {
+  padding-top: 64px;
+  min-height: calc(100vh - 64px);
+}

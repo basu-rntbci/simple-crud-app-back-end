@@ -1,0 +1,41 @@
+# =============================================================================
+# service.yaml — Backend Service
+#
+# WHY a Service?
+#   Pods are ephemeral — they start and stop, and each gets a new IP address.
+#   A Service is a stable network endpoint (fixed IP + DNS name) that routes
+#   traffic to whichever pods match its selector. Other resources reference
+#   the Service name, not individual Pod IPs.
+#
+# WHY ClusterIP (not LoadBalancer)?
+#   ClusterIP makes the backend reachable ONLY inside the cluster. External
+#   traffic enters via the Ingress (AWS ALB), which routes /api/* here.
+#   Exposing the backend directly to the internet (LoadBalancer) would bypass
+#   the Ingress and its WAF, rate-limiting, and TLS termination.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  labels:
+    app: backend
+
+spec:
+  # ClusterIP: creates a stable virtual IP inside the cluster only.
+  # The frontend Nginx and the Ingress controller use this to reach the backend.
+  type: ClusterIP
+
+  # selector finds the Pods to send traffic to. Must match the labels on
+  # the backend Deployment's pod template.
+  selector:
+    app: backend
+
+  ports:
+    - name: http
+      protocol: TCP
+      # port: the port THIS service is reachable on (from within the cluster).
+      # Other services reference backend-service:3000.
+      port: 3000
+      # targetPort: the port on the Pod that actually receives the traffic.
+      # Must match containerPort in deployment.yaml.
+      targetPort: 3000

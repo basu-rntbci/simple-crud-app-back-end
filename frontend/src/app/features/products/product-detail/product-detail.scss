@@ -1,0 +1,245 @@
+.page-wrapper {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 32px 24px;
+
+  @media (max-width: 600px) {
+    padding: 20px 16px;
+  }
+}
+
+/* Breadcrumb */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 24px;
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.breadcrumb-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--mat-sys-primary);
+  text-decoration: none;
+  font-weight: 500;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.breadcrumb-sep {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+  opacity: 0.5;
+}
+
+.breadcrumb-current {
+  font-weight: 600;
+  color: var(--mat-sys-on-surface);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loading-center {
+  display: flex;
+  justify-content: center;
+  padding: 80px 0;
+}
+
+/* Two-column layout */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 48px;
+  align-items: start;
+
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
+/* Image panel */
+.image-panel {
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.product-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+}
+
+.product-img-placeholder {
+  aspect-ratio: 4 / 3;
+  background: linear-gradient(135deg, var(--mat-sys-primary-container), var(--mat-sys-secondary-container));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholder-letter {
+  font-size: 6rem;
+  font-weight: 800;
+  color: var(--mat-sys-primary);
+  opacity: 0.4;
+  line-height: 1;
+}
+
+/* Info panel */
+.info-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.product-name {
+  font-size: 2rem;
+  font-weight: 800;
+  margin: 0;
+  color: var(--mat-sys-on-surface);
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+}
+
+.price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.price-value {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--mat-sys-primary);
+  letter-spacing: -0.5px;
+}
+
+.price-label {
+  font-size: 0.9rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.divider {
+  margin: 4px 0;
+}
+
+/* Details grid — definition list */
+.details-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px 16px;
+  margin: 0;
+
+  dt {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--mat-sys-on-surface-variant);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    align-self: center;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--mat-sys-on-surface);
+    font-size: 0.95rem;
+    align-self: center;
+  }
+}
+
+.quantity-value {
+  font-weight: 700;
+  font-size: 1.1rem !important;
+}
+
+.total-value {
+  font-weight: 700;
+  color: var(--mat-sys-primary) !important;
+  font-size: 1.05rem !important;
+}
+
+.product-id {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.78rem !important;
+  background: var(--mat-sys-surface-container);
+  padding: 3px 8px;
+  border-radius: 6px;
+  word-break: break-all;
+}
+
+/* Stock chip */
+.stock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+
+  .chip-icon {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+  }
+
+  &.stock-high {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  &.stock-low {
+    background: #fef9c3;
+    color: #854d0e;
+  }
+
+  &.stock-out {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+}
+
+/* Actions */
+.action-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  .edit-btn {
+    flex: 1;
+    min-width: 140px;
+    height: 46px;
+    border-radius: 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .delete-btn {
+    flex: 0 0 auto;
+    height: 46px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}

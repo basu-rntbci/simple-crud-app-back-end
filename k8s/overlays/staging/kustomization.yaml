@@ -1,0 +1,107 @@
+# =============================================================================
+# overlays/staging/kustomization.yaml — Staging environment overrides
+#
+# WHEN IS THIS USED?
+#   Automatically by the cd-staging.yml GitHub Actions workflow on every merge
+#   to the main branch. QA and product review happen here before production.
+#
+# APPLY (manually):
+#   kubectl apply -k k8s/overlays/staging
+#
+# DIFFERENCES FROM BASE:
+#   - 2 replicas of backend and frontend (test HA behaviour before prod)
+#   - Medium resource limits (real traffic simulation)
+#   - Image tags are 'staging-<git-sha>' (pushed by CD on main branch merge)
+#   - Namespace is 'staging'
+#   - JWT_EXPIRES_IN shortened to 1d (catch token expiry bugs faster)
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+namespace: staging
+
+namePrefix: staging-
+
+images:
+  - name: simple-crud-backend
+    newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/simple-crud/backend
+    newTag: staging-latest   # cd-staging.yml replaces this with 'staging-<sha>'
+  - name: simple-crud-frontend
+    newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/simple-crud/frontend
+    newTag: staging-latest
+
+patches:
+  # 2 backend replicas: validates that the app works with multiple instances
+  # sharing the same MongoDB Atlas cluster (no in-process state leaking).
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        replicas: 2
+    target:
+      kind: Deployment
+      name: backend
+
+  # 2 frontend replicas: validates zero-downtime rolling updates for the SPA.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+      spec:
+        replicas: 2
+    target:
+      kind: Deployment
+      name: frontend
+
+  # Slightly higher resource limits than dev — closer to prod behaviour.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        template:
+          spec:
+            containers:
+              - name: backend
+                resources:
+                  requests:
+                    cpu: "100m"
+                    memory: "128Mi"
+                  limits:
+                    cpu: "500m"
+                    memory: "256Mi"
+    target:
+      kind: Deployment
+      name: backend
+
+  # HPA: scale between 2 and 6 replicas in staging (test autoscaling behaviour).
+  - patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: backend-hpa
+      spec:
+        minReplicas: 2
+        maxReplicas: 6
+    target:
+      kind: HorizontalPodAutoscaler
+      name: backend-hpa
+
+  # Shorter JWT expiry in staging: exposes session-expiry edge cases in testing.
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: backend-config
+      data:
+        JWT_EXPIRES_IN: "1d"
+    target:
+      kind: ConfigMap
+      name: backend-config

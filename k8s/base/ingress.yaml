@@ -1,0 +1,96 @@
+# =============================================================================
+# ingress.yaml — AWS Application Load Balancer (ALB) Ingress
+#
+# WHY an Ingress?
+#   An Ingress is a single entry point into the cluster. It receives external
+#   HTTP/HTTPS traffic and routes it to the correct internal Service based on
+#   the URL path — no different from a reverse proxy like Nginx or Caddy,
+#   except it's managed by Kubernetes.
+#
+# WHY AWS ALB (not nginx-ingress)?
+#   AWS ALB is the native load balancer for EKS. It integrates with:
+#     - ACM (Certificate Manager) for free, auto-renewing TLS certificates
+#     - WAF (Web Application Firewall) for extra protection
+#     - IAM and security groups for fine-grained access control
+#     - Target type 'ip' — routes traffic directly to pod IPs, not node ports,
+#       reducing network hops and latency
+#
+# PREREQUISITE:
+#   The AWS Load Balancer Controller must be installed in the cluster:
+#   https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html
+#
+# ROUTING LOGIC:
+#   /api/*  →  backend-service:3000   (Express API handles it)
+#   /*      →  frontend-service:80    (Nginx serves the Angular SPA)
+#
+# This means the Angular app (at the browser) makes calls to /api/... and the
+# ALB transparently routes them to the backend without the browser ever knowing
+# the backend's internal DNS name or port.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  annotations:
+    # Tell Kubernetes to use the AWS Load Balancer Controller (not nginx-ingress).
+    kubernetes.io/ingress.class: alb
+
+    # internet-facing: the ALB gets a public IP/DNS.
+    # Use 'internal' instead if the app should only be reachable from within
+    # a VPC (e.g. an internal dashboard).
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+    # 'ip' mode routes traffic directly to pod IPs.
+    # 'instance' mode routes to EC2 node IPs + NodePort — an extra hop.
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # Open ports 80 (HTTP) and 443 (HTTPS) on the ALB.
+    # Port 80 only exists to redirect to 443 (see ssl-redirect below).
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+
+    # Redirect all HTTP requests to HTTPS.
+    # The redirect happens at the ALB before traffic reaches any pod.
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+    # ARN of the ACM certificate for your domain.
+    # REPLACE THIS VALUE with the actual certificate ARN from AWS Certificate Manager.
+    # To create a free certificate: AWS Console → Certificate Manager → Request certificate.
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:REGION:ACCOUNT_ID:certificate/CERTIFICATE_ID"
+
+    # Health check configuration for the ALB target group.
+    # The ALB pings /health on the backend to decide if a pod should receive traffic.
+    # Using /health (not /) keeps load balancer probe traffic out of application logs.
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+
+    # Tags applied to the AWS ALB resource for billing/reporting.
+    # Helps identify costs in Cost Explorer by project and environment.
+    alb.ingress.kubernetes.io/tags: "Project=simple-crud,ManagedBy=kubernetes"
+
+spec:
+  rules:
+    - http:
+        paths:
+          # Route /api/* to the backend Express service.
+          # 'Prefix' means any path starting with /api matches (e.g. /api/auth/login).
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-service
+                port:
+                  number: 3000
+
+          # Route everything else to the Angular frontend (Nginx).
+          # This includes /, /products, /auth/login, and any other SPA route.
+          # Nginx's try_files then handles SPA client-side routing.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80

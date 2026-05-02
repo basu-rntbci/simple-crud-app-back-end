@@ -1,0 +1,153 @@
+# =============================================================================
+# ci.yml — Continuous Integration
+#
+# WHAT THIS DOES:
+#   Every time code is pushed to any branch (or a pull request is opened),
+#   this workflow:
+#     1. Runs the backend Jest test suite against an in-memory MongoDB
+#     2. Builds the Angular app (production mode) to catch TypeScript/build errors
+#     3. Builds both Docker images (but doesn't push them)
+#
+# WHY RUN THIS ON EVERY PUSH?
+#   The goal is to catch broken code BEFORE it is reviewed or merged.
+#   A failing CI check is a signal to the author and reviewers that something
+#   needs to be fixed — better to find out in a PR than after a deploy.
+#
+# REQUIRED GITHUB SECRETS (none — CI only needs the repo code):
+#   No secrets needed for CI. Docker build is just a local build check.
+#   The CD workflows (cd-staging.yml, cd-prod.yml) use AWS secrets for pushing.
+# =============================================================================
+
+name: CI — Test & Build
+
+# Trigger on every push to any branch AND on pull requests targeting main.
+# 'push' covers feature branches; 'pull_request' re-runs when main is updated
+# and the PR branch needs to be re-validated.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ── Job 1: Backend Tests ──────────────────────────────────────────────────
+  backend-test:
+    name: Backend — Jest Tests
+    # ubuntu-latest is the standard CI runner. It's a GitHub-hosted Linux VM.
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository code into the runner's workspace.
+      # fetch-depth: 1 clones only the latest commit (shallow clone) — faster
+      # than a full clone when you don't need git history.
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Set up the exact Node.js version used in development and in Docker.
+      # 'cache: npm' caches the ~/.npm directory between runs so npm ci is
+      # faster on repeated runs (no re-downloading packages from the registry).
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      # npm ci is the CI-safe version of npm install:
+      #   - Reads package-lock.json exactly (reproducible)
+      #   - Fails if package-lock.json is out of sync with package.json
+      #   - Cleans node_modules before installing
+      - name: Install backend dependencies
+        run: npm ci
+
+      # Run Jest. The test suite uses mongodb-memory-server so no external
+      # database is needed — tests are fully self-contained.
+      # --forceExit: ensure Jest exits even if an async operation doesn't settle
+      # --detectOpenHandles: warn about handles that prevent clean exit
+      - name: Run backend tests
+        run: npm test
+        env:
+          # CI=true causes Jest to output non-interactive "dot" progress instead
+          # of the interactive watch mode UI.
+          CI: true
+
+
+  # ── Job 2: Frontend Build ─────────────────────────────────────────────────
+  frontend-build:
+    name: Frontend — Angular Production Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          # Cache is scoped to the frontend/ directory's package-lock.json.
+          # Without this, the root package-lock.json cache would be a miss.
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        # Run npm ci inside the frontend/ directory — it has its own package.json.
+        run: npm ci
+        working-directory: frontend
+
+      # Build in production mode. This validates:
+      #   - TypeScript compilation (no type errors)
+      #   - Template compilation (no invalid Angular template syntax)
+      #   - Bundle size budgets (fails if main bundle exceeds 1 MB)
+      # A failing build here means the code would produce a broken Docker image.
+      - name: Build Angular (production)
+        run: npm run build -- --configuration production
+        working-directory: frontend
+        env:
+          CI: true
+
+
+  # ── Job 3: Docker Build Check ─────────────────────────────────────────────
+  docker-build-check:
+    name: Docker — Build Images (no push)
+    runs-on: ubuntu-latest
+    # Only run after tests and Angular build pass — no point building Docker
+    # images if the code doesn't work.
+    needs: [backend-test, frontend-build]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Set up Docker Buildx — an extended Docker build engine that supports
+      # multi-platform builds, BuildKit cache mounts, and build secrets.
+      # Required for the --cache-from / --cache-to flags used in CD workflows.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the backend image without pushing it.
+      # This confirms the Dockerfile is syntactically valid and that all
+      # COPY/RUN instructions succeed with the current codebase.
+      - name: Build backend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false    # no push in CI — just verify the build works
+          tags: simple-crud-backend:ci-check
+
+      # Build the frontend image without pushing it.
+      # The Angular build runs INSIDE Docker here (Stage 1 of the multi-stage
+      # Dockerfile), so this also validates the Angular build in a clean
+      # environment identical to what the CD workflow will produce.
+      - name: Build frontend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: false
+          tags: simple-crud-frontend:ci-check

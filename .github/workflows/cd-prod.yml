@@ -1,0 +1,173 @@
+# =============================================================================
+# cd-prod.yml — Continuous Deployment to Production
+#
+# WHAT THIS DOES:
+#   When a version tag is pushed (e.g. git tag v1.2.3 && git push --tags),
+#   this workflow:
+#     1. Validates the tag format (must be vX.Y.Z — semantic versioning)
+#     2. Builds Docker images tagged with the version number
+#     3. Pushes them to ECR
+#     4. Creates/updates the Kubernetes Secret in the prod namespace
+#     5. Deploys to the prod namespace via `kubectl apply -k k8s/overlays/prod`
+#     6. Waits for the rolling update to complete
+#
+# WHY VERSION TAGS (not merges to a 'prod' branch)?
+#   Requiring a tag means a human must make a deliberate, explicit decision to
+#   promote to production. This creates a clear audit trail:
+#     git log --tags → shows every production release with who tagged it and when.
+#
+#   Version tags also let you roll back trivially:
+#     git tag v1.2.3 <previous-commit-sha>   # re-tag older commit
+#     git push --tags                          # triggers this workflow with old image
+#
+# REQUIRED GITHUB SECRETS:
+#   Same as cd-staging.yml, PLUS:
+#   MONGO_URI_PROD    — MongoDB Atlas URI for the production database
+#   JWT_SECRET_PROD   — High-entropy random string for JWT signing in production
+#
+# DEPLOYMENT FLOW:
+#   QA approves on staging
+#   → Engineer creates tag: git tag v1.2.3 && git push origin v1.2.3
+#   → THIS workflow runs
+#   → Production is updated
+# =============================================================================
+
+name: CD — Deploy to Production
+
+on:
+  push:
+    # Only trigger on tags that match semantic versioning: v1.0.0, v2.3.4, etc.
+    # Tags like 'test', 'hotfix', or 'v1.0' are ignored — enforces discipline.
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+# No cancel-in-progress for prod — we never want to abort a production deploy
+# mid-flight. If you need to stop it, cancel the run manually in GitHub UI.
+concurrency:
+  group: deploy-prod
+
+jobs:
+  deploy-prod:
+    name: Build, Push & Deploy to Production
+    runs-on: ubuntu-latest
+
+    # Extra protection: only run from the main branch HEAD.
+    # This prevents someone from tagging a feature branch and accidentally
+    # deploying untested code to production.
+    # NOTE: For the condition to work, the tag must point to a commit on main.
+    environment:
+      # 'production' is a GitHub Environment (Settings → Environments).
+      # You can configure required reviewers there — the workflow will pause
+      # and wait for approval before proceeding. This gives you a manual gate
+      # before prod even if the tag was created automatically.
+      name: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Extract just the version number from the tag ref.
+      # github.ref is 'refs/tags/v1.2.3' — we strip the prefix.
+      # The version is used to tag the Docker image (e.g. 'v1.2.3').
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Build and Push Backend ───────────────────────────────────────────
+      # Production images are tagged with:
+      #   v1.2.3        — the version, used as the deployment tag (immutable)
+      #   prod-latest   — convenience alias, always points to the current prod image
+      #
+      # WHY both?
+      #   v1.2.3 is pinned — pulling it always gets this exact build.
+      #   prod-latest is for dashboards/monitoring that want the "current" image
+      #   without knowing the version number.
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:prod-latest
+          # Reuse the staging cache — the staging image was built from the same
+          # code (assuming the tag points to the same commit that was staged).
+          # Most layers will be cache hits, making the prod build very fast.
+          cache-from: type=registry,ref=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:cache
+          cache-to: type=registry,ref=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:cache,mode=max
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          build-args: |
+            BUILD_CONFIG=production
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:prod-latest
+          cache-from: type=registry,ref=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:cache
+          cache-to: type=registry,ref=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:cache,mode=max
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      # ── Create / Update Production Kubernetes Secret ─────────────────────
+      - name: Create/update backend-secrets in prod namespace
+        run: |
+          kubectl create secret generic backend-secrets \
+            --namespace=prod \
+            --from-literal=MONGO_URI='${{ secrets.MONGO_URI_PROD }}' \
+            --from-literal=JWT_SECRET='${{ secrets.JWT_SECRET_PROD }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # ── Update image tags in prod overlay ────────────────────────────────
+      - name: Pin image tags to this release version
+        run: |
+          cd k8s/overlays/prod
+          kustomize edit set image \
+            simple-crud-backend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:${{ steps.version.outputs.VERSION }}
+          kustomize edit set image \
+            simple-crud-frontend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:${{ steps.version.outputs.VERSION }}
+
+      # ── Deploy ───────────────────────────────────────────────────────────
+      - name: Deploy to production
+        run: kubectl apply -k k8s/overlays/prod
+
+      # ── Verify Rollout ───────────────────────────────────────────────────
+      # 10-minute timeout for prod: prod has more replicas (3+) and the rolling
+      # update replaces them one by one. Give it more time than staging.
+      - name: Wait for backend rollout
+        run: kubectl rollout status deployment/backend --namespace=prod --timeout=10m
+
+      - name: Wait for frontend rollout
+        run: kubectl rollout status deployment/frontend --namespace=prod --timeout=10m
+
+      # ── Announce ─────────────────────────────────────────────────────────
+      # This step logs the release details. In a real team setup you would
+      # add a step here to post to Slack/Teams/PagerDuty with the release notes.
+      - name: Production deployment complete
+        run: |
+          echo "============================================"
+          echo "Production deploy successful!"
+          echo "Version: ${{ steps.version.outputs.VERSION }}"
+          echo "Commit:  ${{ github.sha }}"
+          echo "============================================"

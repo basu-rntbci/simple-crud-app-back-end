@@ -1,0 +1,106 @@
+# =============================================================================
+# overlays/prod/kustomization.yaml — Production environment overrides
+#
+# WHEN IS THIS USED?
+#   Automatically by the cd-prod.yml GitHub Actions workflow when a version
+#   tag (e.g. v1.2.3) is pushed to the repository.
+#
+# APPLY (manually — prefer the CD workflow in normal operation):
+#   kubectl apply -k k8s/overlays/prod
+#
+# DIFFERENCES FROM BASE (and staging):
+#   - 3 baseline replicas of backend (one per Availability Zone for HA)
+#   - 2 baseline replicas of frontend
+#   - Full resource limits (real prod sizing)
+#   - HPA scales up to 10 replicas under high load
+#   - Image tags are the version number (e.g. 'v1.2.3') — immutable, pinned release
+#   - Namespace is 'prod'
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+namespace: prod
+
+# No namePrefix in prod — resource names match the base exactly.
+# In staging and dev we prefix to allow all environments in one cluster.
+# In prod it's cleaner to omit the prefix (or run prod in a dedicated cluster).
+
+images:
+  - name: simple-crud-backend
+    newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/simple-crud/backend
+    # Tag is 'v-latest' as a placeholder. cd-prod.yml replaces this with the
+    # actual git tag (e.g. 'v1.2.3'). Version tags are immutable — once
+    # v1.2.3 is pushed, it always refers to the same image digest.
+    newTag: v-latest
+  - name: simple-crud-frontend
+    newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/simple-crud/frontend
+    newTag: v-latest
+
+patches:
+  # 3 backend replicas across 3 AWS Availability Zones (AZs).
+  # The pod anti-affinity rule in the base deployment spreads them automatically.
+  # If one AZ goes down, the other 2 keep serving traffic.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        replicas: 3
+    target:
+      kind: Deployment
+      name: backend
+
+  # 2 frontend replicas — Nginx is stateless and restarts instantly, so 2 is
+  # enough for high availability without over-provisioning.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: frontend
+      spec:
+        replicas: 2
+    target:
+      kind: Deployment
+      name: frontend
+
+  # Generous resource limits for prod. Sized to handle production traffic
+  # before autoscaling kicks in.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        template:
+          spec:
+            containers:
+              - name: backend
+                resources:
+                  requests:
+                    cpu: "200m"
+                    memory: "256Mi"
+                  limits:
+                    cpu: "1000m"    # 1 full vCPU
+                    memory: "512Mi"
+    target:
+      kind: Deployment
+      name: backend
+
+  # HPA: scale between 3 and 10 backend replicas in prod.
+  # minReplicas: 3 — always keep 3 (one per AZ) even at off-peak hours.
+  # maxReplicas: 10 — safety cap to prevent runaway scaling from a traffic spike.
+  - patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: backend-hpa
+      spec:
+        minReplicas: 3
+        maxReplicas: 10
+    target:
+      kind: HorizontalPodAutoscaler
+      name: backend-hpa

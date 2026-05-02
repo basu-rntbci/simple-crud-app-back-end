@@ -1,0 +1,63 @@
+# =============================================================================
+# hpa.yaml — HorizontalPodAutoscaler for the Backend
+#
+# WHY HPA?
+#   Instead of running a fixed number of replicas 24/7, HPA watches CPU and
+#   memory usage and automatically adds or removes pods to match demand.
+#   - Peak traffic (e.g. a product launch): HPA scales up so requests don't queue.
+#   - Off-peak hours (e.g. 3 AM): HPA scales down to save compute costs.
+#
+# PREREQUISITES:
+#   The Kubernetes Metrics Server must be installed in the cluster so the HPA
+#   controller can read CPU/memory metrics from pods:
+#     kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+spec:
+  # scaleTargetRef points at the resource to scale. HPA adjusts its
+  # spec.replicas, which the Deployment uses to create/remove pods.
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+
+  # Minimum replicas: never scale below this, even during low traffic.
+  # Keep at least 1 to avoid cold-start delays on the first request after
+  # scale-to-zero. Overlays raise this to 2+ for staging/prod (HA requires
+  # replicas on different nodes).
+  minReplicas: 1
+
+  # Maximum replicas: never scale above this. Acts as a circuit breaker —
+  # prevents runaway scaling from a bug or traffic spike from consuming
+  # all cluster resources.
+  maxReplicas: 5
+
+  metrics:
+    # ── CPU-based scaling ────────────────────────────────────────────────────
+    # If the average CPU utilisation across all backend pods exceeds 70%,
+    # HPA adds more pods. If it drops below 70%, HPA removes pods.
+    #
+    # 70% is a common sweet spot:
+    #   - Too high (e.g. 90%): pods are nearly maxed out before scaling starts
+    #     — requests back up and latency spikes during the scale-up delay.
+    #   - Too low (e.g. 30%): you'll have many idle pods wasting money.
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # ── Memory-based scaling ─────────────────────────────────────────────────
+    # Memory leaks or large request payloads can cause high memory without
+    # high CPU. Scale before pods OOMKill by adding replicas when any pod
+    # reaches 80% of its memory limit.
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

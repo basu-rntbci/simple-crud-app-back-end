@@ -1,0 +1,167 @@
+# =============================================================================
+# cd-staging.yml — Continuous Deployment to Staging
+#
+# WHAT THIS DOES:
+#   When a push lands on the main branch (PR merged or direct push), this
+#   workflow:
+#     1. Logs in to Amazon ECR (the private Docker registry on AWS)
+#     2. Builds both Docker images and pushes them tagged with 'staging-<sha>'
+#     3. Creates/updates the Kubernetes Secret in the staging namespace
+#        from GitHub Secrets (so MONGO_URI and JWT_SECRET never touch source control)
+#     4. Runs `kubectl apply -k k8s/overlays/staging` to deploy to staging
+#     5. Waits for the rollout to complete (or fails if it doesn't within 5 min)
+#
+# REQUIRED GITHUB SECRETS (Settings → Secrets and variables → Actions):
+#   AWS_ACCESS_KEY_ID      — IAM user access key (needs ECR + EKS permissions)
+#   AWS_SECRET_ACCESS_KEY  — IAM user secret key
+#   AWS_REGION             — e.g. us-east-1
+#   AWS_ACCOUNT_ID         — 12-digit AWS account number
+#   EKS_CLUSTER_NAME       — name of the EKS cluster (e.g. simple-crud-eks)
+#   MONGO_URI_STAGING      — MongoDB Atlas URI for the staging database
+#   JWT_SECRET_STAGING     — High-entropy random string for JWT signing in staging
+#
+# DEPLOYMENT FLOW:
+#   PR opened → CI runs (ci.yml)
+#   PR merged to main → THIS workflow runs → staging is updated
+#   QA approves on staging → engineer creates a version tag → cd-prod.yml runs
+# =============================================================================
+
+name: CD — Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+
+# Cancel any in-progress staging deploy if a new commit lands on main.
+# This prevents two deploys racing each other and leaving staging in an
+# inconsistent state.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy-staging:
+    name: Build, Push & Deploy to Staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── AWS Authentication ───────────────────────────────────────────────
+      # configure-aws-credentials sets up the AWS CLI and SDKs with temporary
+      # credentials scoped to this job. After the job ends, the credentials
+      # expire automatically — much safer than long-lived IAM user keys.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # ── ECR Login ────────────────────────────────────────────────────────
+      # ECR (Elastic Container Registry) is AWS's private Docker registry.
+      # This action runs `aws ecr get-login-password` and pipes it to
+      # `docker login`, so subsequent docker push commands are authenticated.
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── Set up Buildx ────────────────────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Build and Push Backend ───────────────────────────────────────────
+      # We tag the image with BOTH the git SHA (immutable, specific) and
+      # 'staging-latest' (mutable, always points to the newest staging image).
+      # SHA tag: audit trail — you can trace exactly which commit a pod is running.
+      # Latest tag: convenience — `docker pull .../backend:staging-latest` always gets
+      #             the current staging image without knowing the SHA.
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:staging-${{ github.sha }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:staging-latest
+          # Cache layers from the previous build stored in ECR.
+          # On cache hit, Docker reuses the cached layer instead of re-running
+          # the instruction — npm ci (the slowest step) is cached if package-lock.json
+          # hasn't changed.
+          cache-from: type=registry,ref=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:cache
+          cache-to: type=registry,ref=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:cache,mode=max
+
+      # ── Build and Push Frontend ──────────────────────────────────────────
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          # Build the Angular app with the staging configuration so
+          # environment.staging.ts is used instead of environment.ts.
+          build-args: |
+            BUILD_CONFIG=staging
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:staging-${{ github.sha }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:staging-latest
+          cache-from: type=registry,ref=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:cache
+          cache-to: type=registry,ref=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:cache,mode=max
+
+      # ── EKS Authentication ───────────────────────────────────────────────
+      # Updates ~/.kube/config with credentials for the EKS cluster so kubectl
+      # commands in subsequent steps target the right cluster and namespace.
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      # ── Create / Update Kubernetes Secret ───────────────────────────────
+      # The Kubernetes Secret holds MONGO_URI and JWT_SECRET. We create it
+      # from GitHub Secrets here — the raw values never touch a file or log.
+      # '--dry-run=client -o yaml | kubectl apply -f -' is the idempotent
+      # pattern: creates the secret on first deploy, updates it on subsequent ones.
+      - name: Create/update backend-secrets in staging namespace
+        run: |
+          kubectl create secret generic backend-secrets \
+            --namespace=staging \
+            --from-literal=MONGO_URI='${{ secrets.MONGO_URI_STAGING }}' \
+            --from-literal=JWT_SECRET='${{ secrets.JWT_SECRET_STAGING }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # ── Update Kustomize image tags ──────────────────────────────────────
+      # Kustomize's overlay has placeholder image tags ('staging-latest').
+      # We overwrite them with the exact SHA tag so the deployment is pinned
+      # to THIS commit's image — not a 'latest' tag that could change.
+      - name: Update image tags in staging overlay
+        run: |
+          cd k8s/overlays/staging
+          # kustomize edit set image replaces the newTag for the named image.
+          kustomize edit set image \
+            simple-crud-backend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/backend:staging-${{ github.sha }}
+          kustomize edit set image \
+            simple-crud-frontend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/simple-crud/frontend:staging-${{ github.sha }}
+
+      # ── Deploy ───────────────────────────────────────────────────────────
+      # kubectl apply -k renders the Kustomize overlay into final YAML and
+      # applies it to the cluster. Kubernetes diffs against the current state
+      # and only changes what needs to change.
+      - name: Deploy to staging
+        run: kubectl apply -k k8s/overlays/staging
+
+      # ── Verify Rollout ───────────────────────────────────────────────────
+      # rollout status blocks until all pods in the Deployment are running
+      # the new image, or until the timeout (5 minutes) elapses.
+      # If any pod fails its readiness probe during rollout, this step fails
+      # and the workflow is marked as failed — alerting the team.
+      - name: Wait for backend rollout
+        run: kubectl rollout status deployment/staging-backend --namespace=staging --timeout=5m
+
+      - name: Wait for frontend rollout
+        run: kubectl rollout status deployment/staging-frontend --namespace=staging --timeout=5m
+
+      - name: Staging deployment complete
+        run: echo "Staging deploy successful — SHA ${{ github.sha }} is live"

@@ -1,0 +1,10 @@
+<!-- Show the top navigation bar on all non-auth pages -->
+@if (!isAuthRoute()) {
+  <app-navbar />
+}
+
+<!-- Router outlet renders the current route's component.
+     'main-content' adds top padding equal to the navbar height. -->
+<main [class.main-content]="!isAuthRoute()">
+  <router-outlet />
+</main>
